@@ -30,7 +30,7 @@ button[data-balloon] {
   border-radius: 4px;
   color: #fff;
   content: attr(data-balloon);
-  font-size: 18px;
+  font-size: 1px;
   padding: .5em 1em;
   white-space: nowrap;
   margin-bottom: 11px;

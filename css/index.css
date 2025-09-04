@@ -34,6 +34,22 @@ body{
 	line-height: 1.7em;
 }
 
+/* Styles par défaut (pour les grands écrans) */
+#sidebar {
+    width: 250px;
+    float: left;
+}
+
+/* Styles pour les écrans de moins de 768px de large (mobiles) */
+@media (max-width: 768px) {
+    #sidebar {
+        width: 100%; /* La barre latérale prend toute la largeur */
+        float: none;
+        display: flex; /* Aligne les boutons horizontalement */
+        justify-content: space-around; /* Espace joliment les boutons */
+    }
+}
+
 /**********
 
 SPLASH
