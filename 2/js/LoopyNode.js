@@ -19,38 +19,6 @@ LoopyNode.COLORS = {
 LoopyNode.DEFAULT_RADIUS = 60;
 LoopyNode._CLASS_ = "Node";
 
-// Fonction WrapText
-function wrapText(ctx, text, maxWidth, fontSize) {
-	const words = text.split(' ');
-	const lines = [];
-	let currentLine = '';
-	
-	ctx.font = `normal ${fontSize}px sans-serif`;
-	
-	for (let word of words) {
-		const testLine = currentLine + (currentLine ? ' ' : '') + word;
-		const testWidth = ctx.measureText(testLine).width;
-		
-		if (testWidth <= maxWidth) {
-			currentLine = testLine;
-		} else {
-			if (currentLine) {
-				lines.push(currentLine);
-				currentLine = word;
-			} else {
-				// Si un mot est trop long, on le garde quand même
-				lines.push(word);
-			}
-		}
-	}
-	
-	if (currentLine) {
-		lines.push(currentLine);
-	}
-	
-	return lines;
-}
-
 function LoopyNode(model, config){
 
 	const self = this;
@@ -536,38 +504,67 @@ function LoopyNode(model, config){
 		}
 
 		// Text!
+		// Text!
 		if(self.label){
 			let fontsize = 40;
-			ctx.font = "normal "+fontsize+"px sans-serif";
-			ctx.textAlign = "center";
-			ctx.textBaseline = "middle";
-			
-			// Largeur maximale pour le texte (diamètre du cercle - marge)
 			const maxTextWidth = r*2 - 30; // -30 pour la marge
 			
-			// Découper le texte en lignes
-			let lines = wrapText(ctx, self.label, maxTextWidth, fontsize);
+			// Découper le texte par mots directement ici
+			const words = self.label.split(' ');
+			let lines = [];
 			
-			// Si on a plusieurs lignes, réduire la taille de police si nécessaire
-			while (lines.length > 1 && fontsize > 20) {
-				// Réduire la police pour les textes multi-lignes
+			// Fonction de découpage simplifiée
+			const makeLines = (fontSize) => {
+				ctx.font = "normal " + fontSize + "px sans-serif";
+				const result = [];
+				let currentLine = '';
+				
+				for (let word of words) {
+					const testLine = currentLine + (currentLine ? ' ' : '') + word;
+					const testWidth = ctx.measureText(testLine).width;
+					
+					if (testWidth <= maxTextWidth) {
+						currentLine = testLine;
+					} else {
+						if (currentLine) {
+							result.push(currentLine);
+							currentLine = word;
+						} else {
+							result.push(word);
+						}
+					}
+				}
+				if (currentLine) result.push(currentLine);
+				return result;
+			};
+			
+			// Calculer les lignes
+			lines = makeLines(fontsize);
+			
+			// Réduire la police si trop de lignes
+			while (lines.length > 3 && fontsize > 20) {
 				fontsize -= 2;
-				ctx.font = "normal "+fontsize+"px sans-serif";
-				lines = wrapText(ctx, self.label, maxTextWidth, fontsize);
+				lines = makeLines(fontsize);
 			}
 			
-			// Vérifier si on a encore besoin de réduire la police pour la largeur
+			// Réduire encore si une ligne unique est trop large
 			if (lines.length === 1) {
+				ctx.font = "normal " + fontsize + "px sans-serif";
 				let width = ctx.measureText(lines[0]).width;
 				while(width > maxTextWidth && fontsize > 12){
 					fontsize -= 1;
-					ctx.font = "normal "+fontsize+"px sans-serif";
+					ctx.font = "normal " + fontsize + "px sans-serif";
 					width = ctx.measureText(lines[0]).width;
 				}
 			}
 			
-			// Calculer la hauteur totale du texte
-			const lineHeight = fontsize * 1.2;
+			// Configuration finale
+			ctx.textAlign = "center";
+			ctx.textBaseline = "middle";
+			ctx.font = "normal " + fontsize + "px sans-serif";
+			
+			// Calculer positions
+			const lineHeight = fontsize * 1.1;
 			const totalHeight = lines.length * lineHeight;
 			const startY = -(totalHeight / 2) + (lineHeight / 2);
 			
@@ -575,7 +572,7 @@ function LoopyNode(model, config){
 			for (let i = 0; i < lines.length; i++) {
 				const y = startY + (i * lineHeight);
 				
-				// Ombre blanche pour la lisibilité (comme dans le code original)
+				// Ombre blanche
 				ctx.fillStyle = "rgba(100%,100%,100%,.15)";
 				const padding = 3;
 				for(let x=-padding; x<=padding; x++) {
@@ -584,7 +581,7 @@ function LoopyNode(model, config){
 					}
 				}
 				
-				// Texte principal en noir
+				// Texte principal
 				ctx.fillStyle = "#000";
 				ctx.fillText(lines[i], 0, y);
 			}
