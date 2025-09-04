@@ -1,6 +1,6 @@
 /**********************************
 
-NODE!
+NODE! - AVEC GRILLE MAGNÉTIQUE ET AUTO-ARRANGEMENT
 
 **********************************/
 
@@ -15,9 +15,21 @@ LoopyNode.COLORS = {
 	7: "rgba(0,0,0,.3)"  // node settings
 };
 
-
 LoopyNode.DEFAULT_RADIUS = 60;
 LoopyNode._CLASS_ = "Node";
+
+// === AJOUT : Variables globales pour la grille ===
+LoopyNode.GRID_SIZE = 20;
+LoopyNode.snapToGrid = true;
+
+// === AJOUT : Fonctions utilitaires pour la grille ===
+LoopyNode.snapToGridPosition = function(x, y) {
+	if (!LoopyNode.snapToGrid) return { x, y };
+	return {
+		x: Math.round(x / LoopyNode.GRID_SIZE) * LoopyNode.GRID_SIZE,
+		y: Math.round(y / LoopyNode.GRID_SIZE) * LoopyNode.GRID_SIZE
+	};
+};
 
 function LoopyNode(model, config){
 
@@ -32,9 +44,18 @@ function LoopyNode(model, config){
 	// Default values...
 	const defaultProperties = {
 		radius: LoopyNode.DEFAULT_RADIUS,
+	
 	};
 	injectedDefaultProps(defaultProperties,objTypeToTypeIndex("node"));
 	_configureProperties(self, config, defaultProperties);
+
+	// === MODIFICATION : Appliquer la grille lors de l'initialisation ===
+	if (LoopyNode.snapToGrid) {
+		const snapped = LoopyNode.snapToGridPosition(self.x, self.y);
+		self.x = snapped.x;
+		self.y = snapped.y;
+	}
+
 	// Value: from 0 to 1
 	self.initFillRateOrDead = function (){
 		self.value = self.init;
@@ -44,12 +65,14 @@ function LoopyNode(model, config){
 		}
 	}
 	self.initFillRateOrDead();
+	
 	// TODO: ACTUALLY VISUALIZE AN INFINITE RANGE
 	self.bound = function(){ // bound ONLY when changing value.
 		/*var buffer = 1.2;
 		if(self.value<-buffer) self.value=-buffer;
 		if(self.value>1+buffer) self.value=1+buffer;*/
 	};
+
 	function readOnlyRules(){
 		console.log(self.interactive);
 		return self.loopy.mode!==Loopy.MODE_PLAY || self.interactive === 0 || (self.died && self.interactive >= 3);
@@ -57,6 +80,12 @@ function LoopyNode(model, config){
 	function isBottomArrow(){
 		return !readOnlyRules() && self.interactive !== 1 && self.interactive !== 3;
 	}
+
+	// === AJOUT : Variables pour le drag avec grille ===
+	let _isDragging = false;
+	let _dragStartX = 0;
+	let _dragStartY = 0;
+
 	// MOUSE.
 	let _controlsVisible = false;
 	let _controlsAlpha = 0;
@@ -66,6 +95,29 @@ function LoopyNode(model, config){
 	const _listenerMouseMove = subscribe("mousemove", function(){
 
 		if(readOnlyRules()) return;
+
+		// === MODIFICATION : Gestion du drag avec grille magnétique ===
+		if (_isDragging) {
+			const deltaX = Mouse.x - _dragStartX;
+			const deltaY = Mouse.y - _dragStartY;
+			
+			let newX = self.x + deltaX;
+			let newY = self.y + deltaY;
+			
+			// Appliquer la grille magnétique
+			if (LoopyNode.snapToGrid) {
+				const snapped = LoopyNode.snapToGridPosition(newX, newY);
+				newX = snapped.x;
+				newY = snapped.y;
+			}
+			
+			self.x = newX;
+			self.y = newY;
+			
+			_dragStartX = Mouse.x;
+			_dragStartY = Mouse.y;
+			return;
+		}
 
 		// If moused over this, show it, or not.
 		_controlsSelected = self.isPointInNode(Mouse.x, Mouse.y);
@@ -80,9 +132,23 @@ function LoopyNode(model, config){
 		}
 
 	});
+
 	const _listenerMouseDown = subscribe("mousedown",function(){
 
 		if(readOnlyRules()) return;
+		
+		// === MODIFICATION : Démarrer le drag si on clique sur le nœud ===
+		if (self.isPointInNode(Mouse.x, Mouse.y)) {
+			// Si on clique sans direction de contrôle, c'est pour déplacer
+			if (!_controlsDirection) {
+				_isDragging = true;
+				_dragStartX = Mouse.x;
+				_dragStartY = Mouse.y;
+				Mouse.showCursor("move");
+				return;
+			}
+		}
+
 		if(_controlsSelected) _controlsPressed = true;
 
 		// IF YOU CLICKED ME... AND this arrow is active
@@ -98,15 +164,153 @@ function LoopyNode(model, config){
 		}
 
 	});
+
 	const _listenerMouseUp = subscribe("mouseup",function(){
 		if(readOnlyRules()) return;
+		
+		// === MODIFICATION : Arrêter le drag ===
+		if (_isDragging) {
+			_isDragging = false;
+			Mouse.showCursor("auto");
+		}
+		
 		_controlsPressed = false;
 	});
+
+	// === AJOUT : Gestion du clic droit pour le menu contextuel ===
+	const _listenerRightClick = subscribe("rightclick", function(event) {
+		if (self.isPointInNode(Mouse.x, Mouse.y)) {
+			event.preventDefault();
+			self.showContextMenu(event.clientX, event.clientY);
+		}
+	});
+
 	const _listenerReset = subscribe("model/reset", function(){
 		self.value = self.init;
 		self.reseted=true;
 		self.live();
 	});
+
+	// === AJOUT : Méthodes pour l'auto-arrangement ===
+	
+	self.getConnectedNodes = function() {
+		const connected = [];
+		const thisId = self.id || self;
+		
+		// Parcourt toutes les arêtes pour trouver les connexions
+		if (self.model && self.model.edges) {
+			self.model.edges.forEach(edge => {
+				if (edge.from === thisId || edge.from === self) {
+					const targetNode = edge.to;
+					if (targetNode && targetNode !== self) connected.push(targetNode);
+				}
+				if (edge.to === thisId || edge.to === self) {
+					const sourceNode = edge.from;
+					if (sourceNode && sourceNode !== self) connected.push(sourceNode);
+				}
+			});
+		}
+		
+		return connected;
+	};
+
+	self.arrangeInCircleWithNeighbors = function() {
+		const connectedNodes = self.getConnectedNodes();
+		
+		if (connectedNodes.length === 0) return;
+		
+		const allNodes = [self, ...connectedNodes];
+		const centerX = self.x;
+		const centerY = self.y;
+		const radius = Math.max(120, allNodes.length * 40);
+		
+		allNodes.forEach((node, index) => {
+			const angle = (2 * Math.PI * index) / allNodes.length;
+			let newX = centerX + radius * Math.cos(angle);
+			let newY = centerY + radius * Math.sin(angle);
+			
+			// Appliquer la grille magnétique
+			if (LoopyNode.snapToGrid) {
+				const snapped = LoopyNode.snapToGridPosition(newX, newY);
+				newX = snapped.x;
+				newY = snapped.y;
+			}
+			
+			node.x = newX;
+			node.y = newY;
+		});
+	};
+
+	// === AJOUT : Menu contextuel ===
+	self.showContextMenu = function(x, y) {
+		// Supprimer le menu existant s'il y en a un
+		const existingMenu = document.getElementById('node-context-menu');
+		if (existingMenu) {
+			existingMenu.remove();
+		}
+		
+		// Créer le nouveau menu
+		const menu = document.createElement('div');
+		menu.id = 'node-context-menu';
+		menu.style.cssText = `
+			position: fixed;
+			top: ${y}px;
+			left: ${x}px;
+			background: white;
+			border: 2px solid #333;
+			border-radius: 8px;
+			padding: 8px 0;
+			z-index: 2000;
+			box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+			font-family: sans-serif;
+		`;
+		
+		// Option pour arranger en cercle
+		const arrangeOption = document.createElement('div');
+		arrangeOption.textContent = '⭯ Arranger en cercle';
+		arrangeOption.style.cssText = `
+			padding: 10px 16px;
+			cursor: pointer;
+			font-size: 14px;
+			border-bottom: 1px solid #eee;
+			transition: background 0.2s;
+		`;
+		arrangeOption.onmouseover = () => arrangeOption.style.background = '#f5f5f5';
+		arrangeOption.onmouseout = () => arrangeOption.style.background = 'white';
+		arrangeOption.onclick = () => {
+			self.arrangeInCircleWithNeighbors();
+			menu.remove();
+		};
+		
+		// Option pour basculer l'adhérence à la grille
+		const gridOption = document.createElement('div');
+		gridOption.textContent = LoopyNode.snapToGrid ? '⊞ Désactiver grille' : '⊞ Activer grille';
+		gridOption.style.cssText = `
+			padding: 10px 16px;
+			cursor: pointer;
+			font-size: 14px;
+			transition: background 0.2s;
+		`;
+		gridOption.onmouseover = () => gridOption.style.background = '#f5f5f5';
+		gridOption.onmouseout = () => gridOption.style.background = 'white';
+		gridOption.onclick = () => {
+			LoopyNode.snapToGrid = !LoopyNode.snapToGrid;
+			menu.remove();
+		};
+		
+		menu.appendChild(arrangeOption);
+		menu.appendChild(gridOption);
+		document.body.appendChild(menu);
+		
+		// Fermer le menu en cliquant ailleurs
+		const closeMenu = (e) => {
+			if (!menu.contains(e.target)) {
+				menu.remove();
+				document.removeEventListener('click', closeMenu);
+			}
+		};
+		setTimeout(() => document.addEventListener('click', closeMenu), 100);
+	};
 
 	//////////////////////////////////////
 	// SIGNALS ///////////////////////////
@@ -316,6 +520,22 @@ function LoopyNode(model, config){
 		ctx.save();
 		ctx.translate(x,y+_offset);
 
+		// === AJOUT : Indicateur de grille magnétique ===
+		if (LoopyNode.snapToGrid) {
+			const gridX = Math.round(self.x / LoopyNode.GRID_SIZE) * LoopyNode.GRID_SIZE;
+			const gridY = Math.round(self.y / LoopyNode.GRID_SIZE) * LoopyNode.GRID_SIZE;
+			const distance = Math.sqrt(Math.pow(self.x - gridX, 2) + Math.pow(self.y - gridY, 2));
+			
+			if (distance < 5) {
+				ctx.save();
+				ctx.strokeStyle = "rgba(0, 150, 0, 0.4)";
+				ctx.lineWidth = 3;
+				ctx.setLineDash([8, 4]);
+				ctx.strokeRect(-r-15, -r-15, (r+15)*2, (r+15)*2);
+				ctx.restore();
+			}
+		}
+
 		// DRAW HIGHLIGHT???
 		if(self.loopy.sidebar.currentPage.target === self){
 			ctx.beginPath();
@@ -504,7 +724,6 @@ function LoopyNode(model, config){
 		}
 
 		// Text!
-		// Text!
 		if(self.label){
 			let fontsize = 40;
 			const maxTextWidth = r*2 - 30; // -30 pour la marge
@@ -634,6 +853,8 @@ function LoopyNode(model, config){
 		unsubscribe("mousedown",_listenerMouseDown);
 		unsubscribe("mouseup",_listenerMouseUp);
 		unsubscribe("model/reset",_listenerReset);
+		// === AJOUT : Nettoyer les nouveaux listeners ===
+		unsubscribe("rightclick",_listenerRightClick);
 
 		// Remove from parent!
 		model.removeNode(self);
@@ -681,7 +902,20 @@ function LoopyNode(model, config){
 			bottom: self.y + self.radius
 		};
 	};
+
+	// === AJOUT : Méthode pour définir la position avec grille ===
+	self.setPosition = function(x, y) {
+		if (LoopyNode.snapToGrid) {
+			const snapped = LoopyNode.snapToGridPosition(x, y);
+			self.x = snapped.x;
+			self.y = snapped.y;
+		} else {
+			self.x = x;
+			self.y = y;
+		}
+	};
 }
+
 function radialLine (ctx,baseAngle,baseR,size,rx,ry){
 	ctx.lineTo(Math.cos(baseAngle+rx*size)*baseR*(1+ry*size),Math.sin(baseAngle+rx*size)*baseR*(1+ry*size));
 }
