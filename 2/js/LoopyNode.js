@@ -19,6 +19,38 @@ LoopyNode.COLORS = {
 LoopyNode.DEFAULT_RADIUS = 60;
 LoopyNode._CLASS_ = "Node";
 
+// Fonction WrapText
+function wrapText(ctx, text, maxWidth, fontSize) {
+	const words = text.split(' ');
+	const lines = [];
+	let currentLine = '';
+	
+	ctx.font = `normal ${fontSize}px sans-serif`;
+	
+	for (let word of words) {
+		const testLine = currentLine + (currentLine ? ' ' : '') + word;
+		const testWidth = ctx.measureText(testLine).width;
+		
+		if (testWidth <= maxWidth) {
+			currentLine = testLine;
+		} else {
+			if (currentLine) {
+				lines.push(currentLine);
+				currentLine = word;
+			} else {
+				// Si un mot est trop long, on le garde quand même
+				lines.push(word);
+			}
+		}
+	}
+	
+	if (currentLine) {
+		lines.push(currentLine);
+	}
+	
+	return lines;
+}
+
 function LoopyNode(model, config){
 
 	const self = this;
@@ -509,19 +541,53 @@ function LoopyNode(model, config){
 			ctx.font = "normal "+fontsize+"px sans-serif";
 			ctx.textAlign = "center";
 			ctx.textBaseline = "middle";
-			ctx.fillStyle = "#000";
-			let width = ctx.measureText(self.label).width;
-
-			while(width > r*2 - 30){// - 30){ // -30 for buffer. HACK: HARD-CODED.
-				fontsize -= 1;
+			
+			// Largeur maximale pour le texte (diamètre du cercle - marge)
+			const maxTextWidth = r*2 - 30; // -30 pour la marge
+			
+			// Découper le texte en lignes
+			let lines = wrapText(ctx, self.label, maxTextWidth, fontsize);
+			
+			// Si on a plusieurs lignes, réduire la taille de police si nécessaire
+			while (lines.length > 1 && fontsize > 20) {
+				// Réduire la police pour les textes multi-lignes
+				fontsize -= 2;
 				ctx.font = "normal "+fontsize+"px sans-serif";
-				width = ctx.measureText(self.label).width;
+				lines = wrapText(ctx, self.label, maxTextWidth, fontsize);
 			}
-			ctx.fillStyle = "rgba(100%,100%,100%,.15)";
-			const padding = 3;
-			for(let x=-padding;x<=padding;x++)for(let y=-padding;y<=padding;y++) ctx.fillText(self.label, x, y);
-			ctx.fillStyle = "#000";
-			ctx.fillText(self.label, 0, 0);
+			
+			// Vérifier si on a encore besoin de réduire la police pour la largeur
+			if (lines.length === 1) {
+				let width = ctx.measureText(lines[0]).width;
+				while(width > maxTextWidth && fontsize > 12){
+					fontsize -= 1;
+					ctx.font = "normal "+fontsize+"px sans-serif";
+					width = ctx.measureText(lines[0]).width;
+				}
+			}
+			
+			// Calculer la hauteur totale du texte
+			const lineHeight = fontsize * 1.2;
+			const totalHeight = lines.length * lineHeight;
+			const startY = -(totalHeight / 2) + (lineHeight / 2);
+			
+			// Dessiner chaque ligne
+			for (let i = 0; i < lines.length; i++) {
+				const y = startY + (i * lineHeight);
+				
+				// Ombre blanche pour la lisibilité (comme dans le code original)
+				ctx.fillStyle = "rgba(100%,100%,100%,.15)";
+				const padding = 3;
+				for(let x=-padding; x<=padding; x++) {
+					for(let y2=-padding; y2<=padding; y2++) {
+						ctx.fillText(lines[i], x, y + y2);
+					}
+				}
+				
+				// Texte principal en noir
+				ctx.fillStyle = "#000";
+				ctx.fillText(lines[i], 0, y);
+			}
 		}
 
 		// WOBBLE CONTROLS
