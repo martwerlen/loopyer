@@ -51,7 +51,6 @@ function LoopyNode(model, config){
 		if(self.value>1+buffer) self.value=1+buffer;*/
 	};
 	function readOnlyRules(){
-		console.log(self.interactive);
 		return self.loopy.mode!==Loopy.MODE_PLAY || self.interactive === 0 || (self.died && self.interactive >= 3);
 	}
 	function isBottomArrow(){

@@ -44,6 +44,26 @@
 	<div id="playbar"></div>
 	<div id="sidebar"></div>
 
+	<!-- Interface d'enregistrement GIF - À ajouter dans le body de index.html -->
+	<div class="gif-controls">
+		<div class="gif-main-controls">
+			<button id="gif-record-btn" class="gif-record-btn" title="Démarrer/Arrêter l'enregistrement GIF">
+				🔴 Enregistrer vidéo
+			</button>
+			<button id="gif-settings-btn" class="gif-record-btn" style="background: #4444ff; font-size: 12px;" title="Configurer les paramètres d'enregistrement">
+				⚙️ Options
+			</button>
+		</div>
+		
+		<div id="gif-status" class="gif-status" title="État actuel de l'enregistrement">
+			Prêt à enregistrer
+		</div>
+		
+		<div id="gif-settings" class="gif-settings">
+			<!-- Le contenu sera généré par JavaScript -->
+		</div>
+	</div>
+
 	<!-- MODAL -->
 	<div id="modal_container">
 		<div id="modal_bg"></div>
@@ -95,6 +115,10 @@
 <script src="js/Dragger.js"></script>
 <script src="js/Eraser.js"></script>
 <script src="js/Labeller.js"></script>
+
+
+<!-- GIF Recorder - IMPORTANT: Chargé AVANT l'initialisation de Loopy -->
+<script src="js/gif-recorder.js"></script>
 
 <!-- Start it -->
 <script>

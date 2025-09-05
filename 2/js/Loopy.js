@@ -288,6 +288,27 @@ function Loopy(config){
 	// GO.
 	requestAnimationFrame(self.draw);
 
+	self.initWebMRecorder = function() {
+    try {
+        if (typeof AdvancedLoopyWebMRecorder !== 'undefined') {
+            self.webmRecorder = new AdvancedLoopyWebMRecorder(self);
+            self.webmRecorder.init();
+            console.log('WebM Recorder initialisé avec succès');
+        } else {
+            console.warn('AdvancedLoopyWebMRecorder non disponible');
+            setTimeout(() => self.initWebMRecorder(), 1000);
+        }
+    } catch (error) {
+        console.error('Erreur lors de l\'initialisation du WebM Recorder:', error);
+    }
+	};
+
+	// Démarrer l'initialisation après un délai
+	setTimeout(() => {
+		self.initWebMRecorder();
+	}, 100);
 
 }
+
+
 

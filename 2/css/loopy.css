@@ -7,16 +7,19 @@ body{
 	font-size: 20px;
 
 	overflow: hidden;
+
 }
 canvas{
 	position:absolute;
 	top:0; left:0;
+	
 }
 
 #canvasses{
 	position:absolute;
 	top:0; left:0; right: 300px;
 	height: 100%;
+
 }
 #canvasses[fullscreen=yes]{
 	width: 100%;
@@ -423,4 +426,208 @@ MODAL
 }
 #modal iframe{
 	border: none;
+}
+
+/* Styles pour l'interface d'enregistrement vidéo - POSITION BAS GAUCHE */
+
+.gif-controls {
+    position: fixed;
+    bottom: 15px;
+    right: 15px;
+    z-index: 1000;
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 8px;
+    padding: 10px;
+    color: white;
+    font-family: 'Helvetica', sans-serif;
+    min-width: 200px;
+    max-width: 300px;
+}
+
+/* Éviter collision avec toolbar en mode edit */
+#toolbar[mode=edit] ~ .gif-controls,
+.gif-controls.edit-mode {
+    right: 90px; /* 75px toolbar + 15px marge */
+}
+
+/* Mode play - toolbar cachée, on peut revenir à gauche */
+#toolbar[mode=play] ~ .gif-controls,
+.gif-controls.play-mode {
+    right: 15px;
+}
+
+.gif-main-controls {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.gif-record-btn, .gif-btn {
+    background: #44ff44;
+    border: none;
+    border-radius: 5px;
+    color: white;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    margin: 2px;
+    padding: 8px 12px;
+    transition: all 0.2s ease;
+}
+
+.gif-record-btn:hover, .gif-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.gif-record-btn:active, .gif-btn:active {
+    transform: scale(0.95);
+}
+
+.gif-status {
+    font-size: 12px;
+    margin: 5px 0;
+    padding: 5px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    min-height: 20px;
+    color: #fff;
+}
+
+.gif-settings {
+    display: none;
+    margin-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.3);
+    padding-top: 10px;
+}
+
+.gif-settings-content {
+    max-width: 100%;
+}
+
+.gif-settings-content h3 {
+    margin: 0 0 15px 0;
+    color: #fff;
+    font-size: 16px;
+    text-align: center;
+}
+
+.gif-setting {
+    margin: 8px 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.gif-setting label {
+    font-size: 12px;
+    color: #ccc;
+    margin-bottom: 3px;
+}
+
+.gif-setting input[type="number"], 
+.gif-setting input[type="color"], 
+.gif-setting select {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #666;
+    border-radius: 3px;
+    color: #333;
+    font-size: 12px;
+    padding: 4px 6px;
+}
+
+.gif-setting input[type="checkbox"] {
+    margin-right: 5px;
+}
+
+.gif-setting input:focus {
+    outline: none;
+    border-color: #44ff44;
+    box-shadow: 0 0 5px rgba(68, 255, 68, 0.5);
+}
+
+.gif-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 15px;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+
+.gif-btn {
+    background: #4444ff;
+    font-size: 11px;
+    flex: 1;
+    min-width: 80px;
+}
+
+.gif-btn:hover {
+    background: #6666ff;
+}
+
+/* Mode responsive */
+@media (max-width: 768px) {
+    .gif-controls {
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        right: 10px;
+        max-width: none;
+        width: auto;
+    }
+    
+    .gif-main-controls {
+        justify-content: center;
+    }
+    
+    #toolbar[mode=edit] ~ .gif-controls,
+    .gif-controls.edit-mode {
+        left: 10px;
+        bottom: 100px; /* Au-dessus de la toolbar mobile */
+    }
+}
+
+/* Animation pour les boutons */
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+
+.gif-record-btn.recording {
+    animation: pulse 2s infinite;
+}
+
+/* Style pour les différents états */
+.gif-status.recording {
+    background: rgba(255, 68, 68, 0.2);
+    color: #ff4444;
+}
+
+.gif-status.processing {
+    background: rgba(255, 187, 68, 0.2);
+    color: #ffbb44;
+}
+
+.gif-status.success {
+    background: rgba(68, 255, 68, 0.2);
+    color: #44ff44;
+}
+
+.gif-status.error {
+    background: rgba(255, 68, 68, 0.2);
+    color: #ff4444;
+}
+
+/* Indicateur d'enregistrement sur le canvas */
+.recording-indicator {
+    position: fixed;
+    top: 15px;
+    left: 15px;
+    width: 12px;
+    height: 12px;
+    background: #ff4444;
+    border-radius: 50%;
+    z-index: 999;
+    animation: pulse 1s infinite;
 }
