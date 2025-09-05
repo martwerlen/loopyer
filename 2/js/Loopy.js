@@ -87,8 +87,7 @@ function Loopy(config){
 		if(!self.modal.isShowing){ // modAl
 			self.model.draw(); // modEl
 		}
-		ctx.save();
-		ctx.scale(zoomLevel, zoomLevel);
+		
 		requestAnimationFrame(self.draw);
 	};
 
@@ -291,3 +290,4 @@ function Loopy(config){
 
 
 }
+
