@@ -5,6 +5,7 @@ LOOPY!
 
 **********************************/
 
+
 Loopy.MODE_EDIT = 0;
 Loopy.MODE_PLAY = 1;
 
@@ -86,6 +87,8 @@ function Loopy(config){
 		if(!self.modal.isShowing){ // modAl
 			self.model.draw(); // modEl
 		}
+		ctx.save();
+		ctx.scale(zoomLevel, zoomLevel);
 		requestAnimationFrame(self.draw);
 	};
 
