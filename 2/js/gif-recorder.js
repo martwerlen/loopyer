@@ -1,18 +1,14 @@
 /**
- * Enregistreur WebM pour Loopy - Version Singleton
- * Pattern singleton strict pour éviter les instances multiples
+ * Enregistreur WebM pour Loopy - Version corrigée complète
+ * Conservation des options d'enregistrement avec améliorations
  */
 
 class LoopyWebMRecorder {
     static instance = null;
-    static isInitializing = false;
     
     static getInstance(loopy) {
-        if (!LoopyWebMRecorder.instance && !LoopyWebMRecorder.isInitializing) {
-            LoopyWebMRecorder.isInitializing = true;
+        if (!LoopyWebMRecorder.instance) {
             LoopyWebMRecorder.instance = new LoopyWebMRecorder(loopy);
-            LoopyWebMRecorder.isInitializing = false;
-            console.log('Instance WebM Recorder créée');
         }
         return LoopyWebMRecorder.instance;
     }
@@ -30,7 +26,7 @@ class LoopyWebMRecorder {
         this.stream = null;
         this.recordingTimer = null;
         this.canvas = null;
-        this.recordingId = 0; // Pour traquer les enregistrements
+        this.recordingId = 0;
         
         // Paramètres par défaut
         this.settings = {
@@ -42,32 +38,59 @@ class LoopyWebMRecorder {
         
         this.settingsVisible = false;
         this.isInitialized = false;
+        this.eventHandlers = new Map();
         
-        // Binding des méthodes pour éviter les problèmes de contexte
+        // Binding des méthodes
         this.onDataAvailable = this.onDataAvailable.bind(this);
         this.onRecordingStop = this.onRecordingStop.bind(this);
         this.onRecordingError = this.onRecordingError.bind(this);
         this.onRecordingStart = this.onRecordingStart.bind(this);
+        this.toggleRecording = this.toggleRecording.bind(this);
+        this.toggleSettings = this.toggleSettings.bind(this);
+        this.applySettings = this.applySettings.bind(this);
+        this.resetSettings = this.resetSettings.bind(this);
     }
     
-    init() {
+    async init() {
         if (this.isInitialized) {
-            console.log('WebM Recorder déjà initialisé');
             return true;
         }
         
-        if (!this.checkBrowserSupport()) {
-            this.updateStatus('Enregistrement non supporté');
+        try {
+            // Attendre que le DOM soit prêt
+            await this.waitForDOM();
+            
+            if (!this.checkBrowserSupport()) {
+                this.updateStatus('Enregistrement non supporté');
+                return false;
+            }
+            
+            // Créer l'interface immédiatement
+            this.createUI();
+            this.bindEvents();
+            
+            // Le canvas sera recherché au moment de l'enregistrement
+            this.updateStatus('Prêt à enregistrer');
+            this.isInitialized = true;
+            
+            console.log('WebM Recorder initialisé avec succès');
+            return true;
+            
+        } catch (error) {
+            console.error('Erreur initialisation WebM Recorder:', error);
+            this.updateStatus('Erreur d\'initialisation');
             return false;
         }
-        
-        this.createUI();
-        this.bindEvents();
-        this.updateStatus('Prêt à enregistrer');
-        this.isInitialized = true;
-        
-        console.log('WebM Recorder initialisé - ID:', this.recordingId);
-        return true;
+    }
+    
+    waitForDOM() {
+        return new Promise((resolve) => {
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+                resolve();
+            } else {
+                document.addEventListener('DOMContentLoaded', resolve, { once: true });
+            }
+        });
     }
     
     checkBrowserSupport() {
@@ -90,68 +113,129 @@ class LoopyWebMRecorder {
     
     createUI() {
         const settingsDiv = document.getElementById('gif-settings');
-        if (settingsDiv && settingsDiv.innerHTML.trim() === '') {
-            settingsDiv.innerHTML = `
-                <div class="gif-settings-content">
-                    <h3>Paramètres vidéo</h3>
-                    
-                    <div class="gif-setting">
-                        <label>Durée (s):</label>
-                        <input type="number" id="record-duration" min="1" max="60" value="${this.settings.duration}">
-                    </div>
-                    
-                    <div class="gif-setting">
-                        <label>Qualité:</label>
-                        <select id="record-quality">
-                            <option value="500000">Basse</option>
-                            <option value="1000000" selected>Moyenne</option>
-                            <option value="2000000">Haute</option>
-                        </select>
-                    </div>
-                    
-                    <div class="gif-actions">
-                        <button id="record-apply-settings" class="gif-btn">Appliquer</button>
-                        <button id="record-reset-settings" class="gif-btn">Reset</button>
-                    </div>
-                </div>
-            `;
+        if (settingsDiv) {
+            // S'assurer que le div est visible et stylé correctement
+            settingsDiv.style.display = 'none';  // Caché par défaut
+            settingsDiv.style.visibility = 'visible';
+            settingsDiv.style.opacity = '1';
+            
+            this.createSettingsContent(settingsDiv);
+        }
+    }
+    
+    createSettingsContent(settingsDiv) {
+    settingsDiv.innerHTML = `
+        <div class="gif-settings-content">
+            <h3>Paramètres vidéo</h3>
+            
+            <div class="gif-setting">
+                <label>Durée (s):</label>
+                <input type="number" id="record-duration" min="1" max="60" value="${this.settings.duration}">
+            </div>
+            
+            <div class="gif-setting">
+                <label>Images/seconde:</label>
+                <select id="record-fps">
+                    <option value="15">15 fps</option>
+                    <option value="24">24 fps</option>
+                    <option value="30" selected>30 fps</option>
+                    <option value="60">60 fps</option>
+                </select>
+            </div>
+            
+            <div class="gif-setting">
+                <label>Format:</label>
+                <select id="record-format">
+                    <option value="webm" selected>WebM</option>
+                    <option value="mp4">MP4</option>
+                </select>
+            </div>
+            
+            <div class="gif-setting">
+                <label>Qualité:</label>
+                <select id="record-quality">
+                    <option value="500000">Basse (500 kbps)</option>
+                    <option value="1000000" selected>Moyenne (1 Mbps)</option>
+                    <option value="2000000">Haute (2 Mbps)</option>
+                    <option value="4000000">Très haute (4 Mbps)</option>
+                </select>
+            </div>
+            
+            <div class="gif-actions">
+                <button id="record-apply-settings" class="gif-btn">Appliquer</button>
+                <button id="record-reset-settings" class="gif-btn">Reset</button>
+            </div>
+        </div>
+    `;
+    
+    this.bindSettingsEvents();
+}
+    
+    bindSettingsEvents() {
+        // Bouton appliquer
+        const applyBtn = document.getElementById('record-apply-settings');
+        if (applyBtn) {
+            applyBtn.addEventListener('click', this.applySettings);
+        }
+        
+        // Bouton reset
+        const resetBtn = document.getElementById('record-reset-settings');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', this.resetSettings);
         }
     }
     
     bindEvents() {
-        // Supprimer les anciens event listeners s'ils existent
+        // Nettoyer les anciens event listeners
         this.removeEventListeners();
         
+        // Bouton d'enregistrement
         const recordBtn = document.getElementById('gif-record-btn');
         if (recordBtn) {
-            recordBtn.textContent = 'Enregistrer Vidéo';
-            recordBtn.onclick = () => this.toggleRecording();
+            recordBtn.textContent = '🔴 Enregistrer Vidéo';
+            this.eventHandlers.set('record-btn', this.toggleRecording);
+            recordBtn.addEventListener('click', this.toggleRecording);
         }
         
+        // Bouton paramètres
         const settingsBtn = document.getElementById('gif-settings-btn');
         if (settingsBtn) {
-            settingsBtn.onclick = () => this.toggleSettings();
+            this.eventHandlers.set('settings-btn', this.toggleSettings);
+            settingsBtn.addEventListener('click', this.toggleSettings);
         }
         
+        // Bouton appliquer
         const applyBtn = document.getElementById('record-apply-settings');
         if (applyBtn) {
-            applyBtn.onclick = () => this.applySettings();
+            this.eventHandlers.set('apply-btn', this.applySettings);
+            applyBtn.addEventListener('click', this.applySettings);
         }
         
+        // Bouton reset
         const resetBtn = document.getElementById('record-reset-settings');
         if (resetBtn) {
-            resetBtn.onclick = () => this.resetSettings();
+            this.eventHandlers.set('reset-btn', this.resetSettings);
+            resetBtn.addEventListener('click', this.resetSettings);
         }
     }
     
     removeEventListeners() {
-        const buttons = ['gif-record-btn', 'gif-settings-btn', 'record-apply-settings', 'record-reset-settings'];
-        buttons.forEach(id => {
+        const buttons = [
+            { id: 'gif-record-btn', handler: 'record-btn' },
+            { id: 'gif-settings-btn', handler: 'settings-btn' },
+            { id: 'record-apply-settings', handler: 'apply-btn' },
+            { id: 'record-reset-settings', handler: 'reset-btn' }
+        ];
+        
+        buttons.forEach(({ id, handler }) => {
             const btn = document.getElementById(id);
-            if (btn) {
-                btn.onclick = null;
+            const handlerFunc = this.eventHandlers.get(handler);
+            if (btn && handlerFunc) {
+                btn.removeEventListener('click', handlerFunc);
             }
         });
+        
+        this.eventHandlers.clear();
     }
     
     toggleSettings() {
@@ -162,49 +246,86 @@ class LoopyWebMRecorder {
         if (settingsDiv && settingsBtn) {
             if (this.settingsVisible) {
                 settingsDiv.style.display = 'block';
-                settingsBtn.textContent = 'Masquer';
+                settingsBtn.textContent = '❌ Masquer';
                 settingsBtn.style.background = '#ff6666';
+                
+                // Mettre à jour les valeurs dans l'interface
+                this.updateUIValues();
             } else {
                 settingsDiv.style.display = 'none';
-                settingsBtn.textContent = 'Options';
+                settingsBtn.textContent = '⚙️ Options';
                 settingsBtn.style.background = '#4444ff';
             }
         }
     }
     
+    updateUIValues() {
+        const durationInput = document.getElementById('record-duration');
+        const fpsSelect = document.getElementById('record-fps');
+        const qualitySelect = document.getElementById('record-quality');
+        
+        if (durationInput) durationInput.value = this.settings.duration;
+        if (fpsSelect) fpsSelect.value = this.settings.fps;
+        if (qualitySelect) qualitySelect.value = this.settings.quality;
+    }
+    
     applySettings() {
         const duration = document.getElementById('record-duration')?.value;
+        const fps = document.getElementById('record-fps')?.value;
         const quality = document.getElementById('record-quality')?.value;
         
         if (duration) this.settings.duration = parseInt(duration);
+        if (fps) this.settings.fps = parseInt(fps);
         if (quality) this.settings.quality = parseInt(quality);
         
-        this.updateStatus('Paramètres appliqués');
+        console.log('Nouveaux paramètres:', this.settings);
+        this.updateStatus('Paramètres appliqués: ' + this.settings.duration + 's, ' + this.settings.fps + 'fps');
+        
+        setTimeout(() => {
+            this.updateStatus('Prêt à enregistrer');
+        }, 2000);
     }
     
     resetSettings() {
-        this.settings = { duration: 10, fps: 30, quality: 1000000, format: 'webm' };
-        document.getElementById('record-duration').value = this.settings.duration;
-        document.getElementById('record-quality').value = this.settings.quality;
+        this.settings = {
+            duration: 10,
+            fps: 30,
+            quality: 1000000,
+            format: 'webm'
+        };
+        
+        this.updateUIValues();
         this.updateStatus('Paramètres réinitialisés');
+        
+        setTimeout(() => {
+            this.updateStatus('Prêt à enregistrer');
+        }, 2000);
     }
     
-    findCanvas() {
+    async findCanvas() {
         if (this.canvas && this.canvas.parentNode) {
             return this.canvas;
         }
         
-        // Recherche du canvas Loopy
         const canvasContainer = document.getElementById('canvasses');
         if (!canvasContainer) {
-            console.error('Container canvasses non trouvé');
-            return null;
+            throw new Error('Container canvasses non trouvé');
         }
         
         const canvas = canvasContainer.querySelector('canvas');
         if (!canvas) {
-            console.error('Canvas non trouvé');
-            return null;
+            throw new Error('Canvas non trouvé');
+        }
+        
+        // Attendre que le canvas ait une taille valide
+        let attempts = 0;
+        while ((canvas.width === 0 || canvas.height === 0) && attempts < 10) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+        
+        if (canvas.width === 0 || canvas.height === 0) {
+            throw new Error('Canvas invalide (taille 0)');
         }
         
         this.canvas = canvas;
@@ -220,48 +341,55 @@ class LoopyWebMRecorder {
         }
     }
     
-    startRecording() {
+    async startRecording() {
         if (this.isRecording) {
             console.warn('Enregistrement déjà en cours');
             return;
         }
         
-        // Incrémenter l'ID d'enregistrement
         this.recordingId++;
         const currentId = this.recordingId;
         console.log('=== DÉMARRAGE ENREGISTREMENT', currentId, '===');
         
-        // Nettoyage complet avant de commencer
         this.forceCleanup();
         
         try {
-            const canvas = this.findCanvas();
-            if (!canvas || canvas.width === 0 || canvas.height === 0) {
-                this.updateStatus('Canvas invalide');
-                return;
-            }
+            this.updateStatus('Initialisation...');
             
-            // Créer le stream
+            const canvas = await this.findCanvas();
+            
+            // Créer le stream avec les FPS configurés
             this.stream = canvas.captureStream(this.settings.fps);
             if (!this.stream || this.stream.getTracks().length === 0) {
-                this.updateStatus('Impossible de créer le stream');
-                return;
+                throw new Error('Impossible de créer le stream');
             }
             
-            console.log('Stream créé pour enregistrement', currentId);
+            console.log('Stream créé avec', this.settings.fps, 'FPS pour enregistrement', currentId);
             
-            // Déterminer le meilleur format
-            const mimeTypes = [
-                'video/webm;codecs=vp9',
-                'video/webm;codecs=vp8', 
-                'video/webm',
-                'video/mp4'
-            ];
+            // Déterminer le format selon les paramètres utilisateur
+            let mimeTypes = [];
+            if (this.settings.format === 'mp4') {
+                mimeTypes = [
+                    'video/mp4;codecs=avc1.42E01E',
+                    'video/mp4'
+                ];
+            } else {
+                // WebM par défaut
+                mimeTypes = [
+                    'video/webm;codecs=vp9',
+                    'video/webm;codecs=vp8', 
+                    'video/webm'
+                ];
+            }
             
-            const mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
-            console.log('Format utilisé:', mimeType);
+            const mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type));
+            if (!mimeType) {
+                throw new Error('Format ' + this.settings.format.toUpperCase() + ' non supporté');
+            }
             
-            // Créer MediaRecorder
+            console.log('Format utilisé:', mimeType, 'pour', this.settings.format.toUpperCase());
+            
+            // Créer MediaRecorder avec la qualité configurée
             this.mediaRecorder = new MediaRecorder(this.stream, {
                 mimeType: mimeType,
                 videoBitsPerSecond: this.settings.quality
@@ -269,24 +397,24 @@ class LoopyWebMRecorder {
             
             this.recordedChunks = [];
             
-            // Event listeners avec vérification d'ID
+            // Event listeners
             this.mediaRecorder.ondataavailable = (event) => this.onDataAvailable(event, currentId);
             this.mediaRecorder.onstop = () => this.onRecordingStop(currentId);
             this.mediaRecorder.onerror = (event) => this.onRecordingError(event, currentId);
             this.mediaRecorder.onstart = () => this.onRecordingStart(currentId);
             
             // Démarrer
-            this.mediaRecorder.start(1000); // Chunks toutes les secondes
+            this.mediaRecorder.start(1000);
             this.isRecording = true;
             this.recordingStartTime = Date.now();
             
             this.updateRecordButton();
             
-            // Timer d'arrêt automatique
+            // Timer d'arrêt automatique avec durée configurée
             let timeLeft = this.settings.duration;
             this.recordingTimer = setInterval(() => {
                 timeLeft--;
-                this.updateStatus(`Enregistrement ${currentId}... ${timeLeft}s`);
+                this.updateStatus(`Enregistrement ${currentId}... ${timeLeft}s restantes`);
                 
                 if (timeLeft <= 0 && this.recordingId === currentId) {
                     this.stopRecording();
@@ -300,7 +428,6 @@ class LoopyWebMRecorder {
         }
     }
     
-    // Event handlers avec vérification d'ID
     onDataAvailable(event, recordingId) {
         if (recordingId !== this.recordingId) {
             console.warn('Chunk ignoré - ancien enregistrement', recordingId);
@@ -454,7 +581,7 @@ class LoopyWebMRecorder {
         video.onerror = reject;
     });
 }
-
+    
     downloadVideo(blob, mimeType) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -493,7 +620,6 @@ class LoopyWebMRecorder {
                 console.warn('Erreur arrêt MediaRecorder:', e);
             }
             
-            // Nettoyer les event listeners
             this.mediaRecorder.ondataavailable = null;
             this.mediaRecorder.onstop = null;
             this.mediaRecorder.onerror = null;
@@ -505,7 +631,6 @@ class LoopyWebMRecorder {
             this.stream.getTracks().forEach(track => {
                 if (track.readyState === 'live') {
                     track.stop();
-                    console.log('Track arrêté:', track.kind);
                 }
             });
             this.stream = null;
@@ -519,11 +644,13 @@ class LoopyWebMRecorder {
         const btn = document.getElementById('gif-record-btn');
         if (btn) {
             if (this.isRecording) {
-                btn.textContent = 'Arrêter';
+                btn.textContent = '⏹️ Arrêter';
                 btn.style.background = '#ff4444';
+                btn.classList.add('recording');
             } else {
-                btn.textContent = 'Enregistrer Vidéo';
+                btn.textContent = '🔴 Enregistrer Vidéo';
                 btn.style.background = '#44ff44';
+                btn.classList.remove('recording');
             }
         }
     }
@@ -536,7 +663,6 @@ class LoopyWebMRecorder {
         console.log('Status:', message);
     }
     
-    // Méthode de diagnostic
     getDebugInfo() {
         return {
             isRecording: this.isRecording,
@@ -544,11 +670,12 @@ class LoopyWebMRecorder {
             hasStream: !!this.stream,
             hasMediaRecorder: !!this.mediaRecorder,
             chunksCount: this.recordedChunks.length,
-            canvasFound: !!this.findCanvas(),
-            isInitialized: this.isInitialized
+            canvasFound: !!this.canvas,
+            isInitialized: this.isInitialized,
+            settings: this.settings
         };
     }
 }
 
-// Export global - PAS d'auto-initialisation
+// Export global
 window.LoopyWebMRecorder = LoopyWebMRecorder;
