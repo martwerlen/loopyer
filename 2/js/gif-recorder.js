@@ -355,38 +355,106 @@ class LoopyWebMRecorder {
         this.updateStatus('Finalisation...');
     }
     
-    processRecording() {
-        console.log('Traitement enregistrement, chunks:', this.recordedChunks.length);
-        
-        if (this.recordedChunks.length === 0) {
-            this.updateStatus('Aucune donnée');
-            this.forceCleanup();
-            return;
-        }
-        
-        try {
-            const mimeType = this.mediaRecorder.mimeType || 'video/webm';
-            const blob = new Blob(this.recordedChunks, { type: mimeType });
-            
-            console.log('Blob créé:', blob.size, 'bytes');
-            
-            if (blob.size > 0) {
-                this.downloadVideo(blob, mimeType);
-                const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
-                this.updateStatus(`Vidéo téléchargée ! (${sizeMB} MB)`);
-            } else {
-                this.updateStatus('Fichier vide');
-            }
-            
-        } catch (error) {
-            console.error('Erreur traitement:', error);
-            this.updateStatus('Erreur traitement: ' + error.message);
-        } finally {
-            // Délai avant nettoyage pour laisser le téléchargement se faire
-            setTimeout(() => this.forceCleanup(), 1000);
-        }
+    async processRecording() {
+    console.log('Traitement enregistrement, chunks:', this.recordedChunks.length);
+    
+    if (this.recordedChunks.length === 0) {
+        this.updateStatus('Aucune donnée');
+        this.forceCleanup();
+        return;
     }
     
+    try {
+        const mimeType = this.mediaRecorder.mimeType || 'video/webm';
+        const originalBlob = new Blob(this.recordedChunks, { type: mimeType });
+        
+        this.updateStatus('Ajout du fond blanc...');
+        
+        // Traitement avec fond blanc
+        const processedBlob = await this.processVideoWithWhiteBackground(originalBlob);
+        
+        console.log('Blob traité:', processedBlob.size, 'bytes');
+        
+        if (processedBlob.size > 0) {
+            this.downloadVideo(processedBlob, mimeType);
+            const sizeMB = (processedBlob.size / 1024 / 1024).toFixed(2);
+            this.updateStatus(`Vidéo téléchargée ! (${sizeMB} MB)`);
+        } else {
+            this.updateStatus('Fichier vide');
+        }
+        
+    } catch (error) {
+        console.error('Erreur traitement:', error);
+        this.updateStatus('Erreur traitement: ' + error.message);
+    } finally {
+        setTimeout(() => this.forceCleanup(), 1000);
+    }
+}
+
+    async processVideoWithWhiteBackground(videoBlob) {
+    return new Promise((resolve, reject) => {
+        // Créer un élément vidéo pour lire le blob
+        const video = document.createElement('video');
+        video.src = URL.createObjectURL(videoBlob);
+        video.muted = true;
+        
+        // Canvas pour recomposer avec fond blanc
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        // MediaRecorder pour réenregistrer
+        const chunks = [];
+        let mediaRecorder;
+        
+        video.onloadedmetadata = () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            // Créer le stream du canvas
+            const stream = canvas.captureStream(30);
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: this.mediaRecorder.mimeType,
+                videoBitsPerSecond: this.settings.quality
+            });
+            
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) chunks.push(e.data);
+            };
+            
+            mediaRecorder.onstop = () => {
+                const processedBlob = new Blob(chunks, { type: videoBlob.type });
+                URL.revokeObjectURL(video.src);
+                resolve(processedBlob);
+            };
+            
+            // Commencer l'enregistrement
+            mediaRecorder.start();
+            
+            // Fonction de rendu frame par frame
+            const renderFrame = () => {
+                if (video.ended) {
+                    mediaRecorder.stop();
+                    return;
+                }
+                
+                // Fond blanc
+                ctx.fillStyle = 'white';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Vidéo par-dessus
+                ctx.drawImage(video, 0, 0);
+                
+                requestAnimationFrame(renderFrame);
+            };
+            
+            video.play();
+            renderFrame();
+        };
+        
+        video.onerror = reject;
+    });
+}
+
     downloadVideo(blob, mimeType) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
