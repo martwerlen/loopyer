@@ -1,81 +1,117 @@
 /**
- * Enregistreur WebM pour Loopy
- * Alternative moderne Ã  GIF.js utilisant MediaRecorder API
+ * Enregistreur WebM pour Loopy - Version Singleton
+ * Pattern singleton strict pour éviter les instances multiples
  */
 
-class AdvancedLoopyWebMRecorder {
+class LoopyWebMRecorder {
+    static instance = null;
+    static isInitializing = false;
+    
+    static getInstance(loopy) {
+        if (!LoopyWebMRecorder.instance && !LoopyWebMRecorder.isInitializing) {
+            LoopyWebMRecorder.isInitializing = true;
+            LoopyWebMRecorder.instance = new LoopyWebMRecorder(loopy);
+            LoopyWebMRecorder.isInitializing = false;
+            console.log('Instance WebM Recorder créée');
+        }
+        return LoopyWebMRecorder.instance;
+    }
+    
     constructor(loopy) {
+        if (LoopyWebMRecorder.instance) {
+            return LoopyWebMRecorder.instance;
+        }
+        
         this.loopy = loopy;
         this.mediaRecorder = null;
         this.isRecording = false;
         this.recordingStartTime = 0;
         this.recordedChunks = [];
+        this.stream = null;
+        this.recordingTimer = null;
+        this.canvas = null;
+        this.recordingId = 0; // Pour traquer les enregistrements
         
-        // ParamÃ¨tres par dÃ©faut
+        // Paramètres par défaut
         this.settings = {
-            duration: 10, // secondes
-            fps: 30, // MediaRecorder gÃ¨re automatiquement
-            quality: 1000000, // bits par seconde
-            width: 1920, // Non utilisÃ© avec MediaRecorder mais gardÃ© pour l'interface
-            height: 1080,
-            format: 'webm' // 'webm' ou 'mp4' selon support navigateur
+            duration: 10,
+            fps: 30,
+            quality: 1000000,
+            format: 'webm'
         };
         
         this.settingsVisible = false;
+        this.isInitialized = false;
+        
+        // Binding des méthodes pour éviter les problèmes de contexte
+        this.onDataAvailable = this.onDataAvailable.bind(this);
+        this.onRecordingStop = this.onRecordingStop.bind(this);
+        this.onRecordingError = this.onRecordingError.bind(this);
+        this.onRecordingStart = this.onRecordingStart.bind(this);
     }
     
     init() {
-        // VÃ©rifier support MediaRecorder
-        if (!MediaRecorder.isTypeSupported('video/webm')) {
-            console.warn('WebM non supporté, tentative MP4...');
-            if (!MediaRecorder.isTypeSupported('video/mp4')) {
-                console.error('Enregistrement vidéo non supporté par ce navigateur');
-                this.updateStatus('Enregistrement non supporté');
-                return;
-            }
-            this.settings.format = 'mp4';
+        if (this.isInitialized) {
+            console.log('WebM Recorder déjà initialisé');
+            return true;
+        }
+        
+        if (!this.checkBrowserSupport()) {
+            this.updateStatus('Enregistrement non supporté');
+            return false;
         }
         
         this.createUI();
         this.bindEvents();
-        this.updateStatus('Prêt à  enregistrer (WebM)');
-        console.log('WebM Recorder initialisé');
+        this.updateStatus('Prêt à enregistrer');
+        this.isInitialized = true;
+        
+        console.log('WebM Recorder initialisé - ID:', this.recordingId);
+        return true;
+    }
+    
+    checkBrowserSupport() {
+        if (!window.MediaRecorder) {
+            console.error('MediaRecorder API non supportée');
+            return false;
+        }
+        
+        const formats = ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
+        const supported = formats.find(format => MediaRecorder.isTypeSupported(format));
+        
+        if (!supported) {
+            console.error('Aucun format vidéo supporté');
+            return false;
+        }
+        
+        console.log('Format supporté:', supported);
+        return true;
     }
     
     createUI() {
         const settingsDiv = document.getElementById('gif-settings');
-        if (settingsDiv) {
+        if (settingsDiv && settingsDiv.innerHTML.trim() === '') {
             settingsDiv.innerHTML = `
                 <div class="gif-settings-content">
-                    <h3>Paramètres d'enregistrement vidÃ©o</h3>
+                    <h3>Paramètres vidéo</h3>
                     
                     <div class="gif-setting">
-                        <label>DurÃ©e (secondes):</label>
+                        <label>Durée (s):</label>
                         <input type="number" id="record-duration" min="1" max="60" value="${this.settings.duration}">
                     </div>
                     
                     <div class="gif-setting">
-                        <label>QualitÃ© (bits/s):</label>
+                        <label>Qualité:</label>
                         <select id="record-quality">
-                            <option value="500000">Basse (500k)</option>
-                            <option value="1000000" selected>Moyenne (1M)</option>
-                            <option value="2000000">Haute (2M)</option>
-                            <option value="5000000">TrÃ¨s haute (5M)</option>
-                        </select>
-                    </div>
-                    
-                    <div class="gif-setting">
-                        <label>Format:</label>
-                        <select id="record-format">
-                            <option value="webm">WebM (recommandÃ©)</option>
-                            <option value="mp4">MP4 (si supportÃ©)</option>
+                            <option value="500000">Basse</option>
+                            <option value="1000000" selected>Moyenne</option>
+                            <option value="2000000">Haute</option>
                         </select>
                     </div>
                     
                     <div class="gif-actions">
                         <button id="record-apply-settings" class="gif-btn">Appliquer</button>
-                        <button id="record-reset-settings" class="gif-btn">RÃ©initialiser</button>
-                        <button id="record-test-support" class="gif-btn">Tester support</button>
+                        <button id="record-reset-settings" class="gif-btn">Reset</button>
                     </div>
                 </div>
             `;
@@ -83,41 +119,37 @@ class AdvancedLoopyWebMRecorder {
     }
     
     bindEvents() {
-        // Bouton d'enregistrement principal
+        // Supprimer les anciens event listeners s'ils existent
+        this.removeEventListeners();
+        
         const recordBtn = document.getElementById('gif-record-btn');
         if (recordBtn) {
-            recordBtn.textContent = 'Enregistrer VidÃ©o';
-            recordBtn.addEventListener('click', () => this.toggleRecording());
+            recordBtn.textContent = 'Enregistrer Vidéo';
+            recordBtn.onclick = () => this.toggleRecording();
         }
         
-        // Bouton des paramÃ¨tres
         const settingsBtn = document.getElementById('gif-settings-btn');
         if (settingsBtn) {
-            settingsBtn.addEventListener('click', () => this.toggleSettings());
+            settingsBtn.onclick = () => this.toggleSettings();
         }
         
-        // Boutons des paramÃ¨tres
         const applyBtn = document.getElementById('record-apply-settings');
         if (applyBtn) {
-            applyBtn.addEventListener('click', () => this.applySettings());
+            applyBtn.onclick = () => this.applySettings();
         }
         
         const resetBtn = document.getElementById('record-reset-settings');
         if (resetBtn) {
-            resetBtn.addEventListener('click', () => this.resetSettings());
+            resetBtn.onclick = () => this.resetSettings();
         }
-        
-        const testBtn = document.getElementById('record-test-support');
-        if (testBtn) {
-            testBtn.addEventListener('click', () => this.testSupport());
-        }
-        
-        // Auto-application des paramÃ¨tres
-        const inputs = ['record-duration', 'record-quality', 'record-format'];
-        inputs.forEach(id => {
-            const input = document.getElementById(id);
-            if (input) {
-                input.addEventListener('change', () => this.applySettings());
+    }
+    
+    removeEventListeners() {
+        const buttons = ['gif-record-btn', 'gif-settings-btn', 'record-apply-settings', 'record-reset-settings'];
+        buttons.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) {
+                btn.onclick = null;
             }
         });
     }
@@ -141,36 +173,43 @@ class AdvancedLoopyWebMRecorder {
     }
     
     applySettings() {
-        this.settings.duration = parseInt(document.getElementById('record-duration')?.value) || this.settings.duration;
-        this.settings.quality = parseInt(document.getElementById('record-quality')?.value) || this.settings.quality;
-        this.settings.format = document.getElementById('record-format')?.value || this.settings.format;
+        const duration = document.getElementById('record-duration')?.value;
+        const quality = document.getElementById('record-quality')?.value;
         
-        this.updateStatus('ParamÃ¨tres appliquÃ©s');
+        if (duration) this.settings.duration = parseInt(duration);
+        if (quality) this.settings.quality = parseInt(quality);
+        
+        this.updateStatus('Paramètres appliqués');
     }
     
     resetSettings() {
-        this.settings = {
-            duration: 10,
-            fps: 30,
-            quality: 1000000,
-            width: 1920,
-            height: 1080,
-            format: 'webm'
-        };
-        
+        this.settings = { duration: 10, fps: 30, quality: 1000000, format: 'webm' };
         document.getElementById('record-duration').value = this.settings.duration;
         document.getElementById('record-quality').value = this.settings.quality;
-        document.getElementById('record-format').value = this.settings.format;
-        
-        this.updateStatus('ParamÃ¨tres rÃ©initialisÃ©s');
+        this.updateStatus('Paramètres réinitialisés');
     }
     
-    testSupport() {
-        const formats = ['video/webm', 'video/webm;codecs=vp9', 'video/mp4', 'video/mp4;codecs=h264'];
-        const supported = formats.filter(format => MediaRecorder.isTypeSupported(format));
+    findCanvas() {
+        if (this.canvas && this.canvas.parentNode) {
+            return this.canvas;
+        }
         
-        console.log('Formats supportÃ©s:', supported);
-        this.updateStatus(`Formats supportÃ©s: ${supported.length > 0 ? supported.join(', ') : 'Aucun'}`);
+        // Recherche du canvas Loopy
+        const canvasContainer = document.getElementById('canvasses');
+        if (!canvasContainer) {
+            console.error('Container canvasses non trouvé');
+            return null;
+        }
+        
+        const canvas = canvasContainer.querySelector('canvas');
+        if (!canvas) {
+            console.error('Canvas non trouvé');
+            return null;
+        }
+        
+        this.canvas = canvas;
+        console.log('Canvas trouvé:', canvas.width, 'x', canvas.height);
+        return canvas;
     }
     
     toggleRecording() {
@@ -182,133 +221,240 @@ class AdvancedLoopyWebMRecorder {
     }
     
     startRecording() {
-        if (this.isRecording) return;
+        if (this.isRecording) {
+            console.warn('Enregistrement déjà en cours');
+            return;
+        }
+        
+        // Incrémenter l'ID d'enregistrement
+        this.recordingId++;
+        const currentId = this.recordingId;
+        console.log('=== DÉMARRAGE ENREGISTREMENT', currentId, '===');
+        
+        // Nettoyage complet avant de commencer
+        this.forceCleanup();
         
         try {
-            // Obtenir le canvas de Loopy
-            const loopyCanvas = document.querySelector('#canvasses canvas');
-            if (!loopyCanvas) {
-                this.updateStatus('Canvas non trouvÃ©');
+            const canvas = this.findCanvas();
+            if (!canvas || canvas.width === 0 || canvas.height === 0) {
+                this.updateStatus('Canvas invalide');
                 return;
             }
             
-            // CrÃ©er le stream vidÃ©o depuis le canvas
-            const stream = loopyCanvas.captureStream(this.settings.fps);
-            
-            // DÃ©terminer le type MIME
-            let mimeType = `video/${this.settings.format}`;
-            if (this.settings.format === 'webm' && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) {
-                mimeType = 'video/webm;codecs=vp9';
-            } else if (this.settings.format === 'mp4' && MediaRecorder.isTypeSupported('video/mp4;codecs=h264')) {
-                mimeType = 'video/mp4;codecs=h264';
+            // Créer le stream
+            this.stream = canvas.captureStream(this.settings.fps);
+            if (!this.stream || this.stream.getTracks().length === 0) {
+                this.updateStatus('Impossible de créer le stream');
+                return;
             }
             
-            // Configuration MediaRecorder
-            const options = {
+            console.log('Stream créé pour enregistrement', currentId);
+            
+            // Déterminer le meilleur format
+            const mimeTypes = [
+                'video/webm;codecs=vp9',
+                'video/webm;codecs=vp8', 
+                'video/webm',
+                'video/mp4'
+            ];
+            
+            const mimeType = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+            console.log('Format utilisé:', mimeType);
+            
+            // Créer MediaRecorder
+            this.mediaRecorder = new MediaRecorder(this.stream, {
                 mimeType: mimeType,
                 videoBitsPerSecond: this.settings.quality
-            };
+            });
             
-            console.log('Configuration enregistrement:', options);
-            
-            // CrÃ©er le MediaRecorder
-            this.mediaRecorder = new MediaRecorder(stream, options);
             this.recordedChunks = [];
             
-            // Ã‰vÃ©nements MediaRecorder
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    this.recordedChunks.push(event.data);
-                    console.log('Chunk reÃ§u:', event.data.size, 'bytes');
-                }
-            };
+            // Event listeners avec vérification d'ID
+            this.mediaRecorder.ondataavailable = (event) => this.onDataAvailable(event, currentId);
+            this.mediaRecorder.onstop = () => this.onRecordingStop(currentId);
+            this.mediaRecorder.onerror = (event) => this.onRecordingError(event, currentId);
+            this.mediaRecorder.onstart = () => this.onRecordingStart(currentId);
             
-            this.mediaRecorder.onstop = () => {
-                this.onRecordingComplete();
-            };
-            
-            this.mediaRecorder.onerror = (event) => {
-                console.error('Erreur MediaRecorder:', event.error);
-                this.updateStatus('Erreur d\'enregistrement');
-                this.isRecording = false;
-                this.updateRecordButton();
-            };
-            
-            // DÃ©marrer l'enregistrement
-            this.mediaRecorder.start();
+            // Démarrer
+            this.mediaRecorder.start(1000); // Chunks toutes les secondes
             this.isRecording = true;
             this.recordingStartTime = Date.now();
             
             this.updateRecordButton();
-            this.updateStatus(`Enregistrement ${this.settings.format.toUpperCase()}...`);
             
-            // ArrÃªt automatique
-            setTimeout(() => {
-                if (this.isRecording && this.mediaRecorder.state === 'recording') {
+            // Timer d'arrêt automatique
+            let timeLeft = this.settings.duration;
+            this.recordingTimer = setInterval(() => {
+                timeLeft--;
+                this.updateStatus(`Enregistrement ${currentId}... ${timeLeft}s`);
+                
+                if (timeLeft <= 0 && this.recordingId === currentId) {
                     this.stopRecording();
                 }
-            }, this.settings.duration * 1000);
-            
-            console.log('Enregistrement dÃ©marrÃ©');
+            }, 1000);
             
         } catch (error) {
-            console.error('Erreur dÃ©marrage enregistrement:', error);
+            console.error('Erreur démarrage:', error);
             this.updateStatus('Erreur: ' + error.message);
-            this.isRecording = false;
+            this.forceCleanup();
         }
     }
     
-    stopRecording() {
-        if (!this.isRecording || !this.mediaRecorder) return;
+    // Event handlers avec vérification d'ID
+    onDataAvailable(event, recordingId) {
+        if (recordingId !== this.recordingId) {
+            console.warn('Chunk ignoré - ancien enregistrement', recordingId);
+            return;
+        }
         
-        console.log('ArrÃªt enregistrement...');
-        this.mediaRecorder.stop();
+        if (event.data && event.data.size > 0) {
+            this.recordedChunks.push(event.data);
+            console.log('Chunk reçu:', event.data.size, 'bytes');
+        }
+    }
+    
+    onRecordingStart(recordingId) {
+        if (recordingId !== this.recordingId) return;
+        console.log('Enregistrement démarré:', recordingId);
+    }
+    
+    onRecordingStop(recordingId) {
+        if (recordingId !== this.recordingId) {
+            console.warn('Stop ignoré - ancien enregistrement', recordingId);
+            return;
+        }
+        
+        console.log('Arrêt enregistrement:', recordingId);
+        this.processRecording();
+    }
+    
+    onRecordingError(event, recordingId) {
+        if (recordingId !== this.recordingId) return;
+        
+        console.error('Erreur enregistrement:', event.error);
+        this.updateStatus('Erreur: ' + event.error.name);
+        this.forceCleanup();
+    }
+    
+    stopRecording() {
+        if (!this.isRecording) return;
+        
+        console.log('=== ARRÊT ENREGISTREMENT', this.recordingId, '===');
+        
+        if (this.recordingTimer) {
+            clearInterval(this.recordingTimer);
+            this.recordingTimer = null;
+        }
+        
+        if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+            this.mediaRecorder.stop();
+        }
+        
         this.isRecording = false;
         this.updateRecordButton();
         this.updateStatus('Finalisation...');
     }
     
-    onRecordingComplete() {
-        console.log('Enregistrement terminÃ©, chunks:', this.recordedChunks.length);
+    processRecording() {
+        console.log('Traitement enregistrement, chunks:', this.recordedChunks.length);
         
         if (this.recordedChunks.length === 0) {
-            this.updateStatus('Aucune donnÃ©e enregistrÃ©e');
+            this.updateStatus('Aucune donnée');
+            this.forceCleanup();
             return;
         }
         
-        // CrÃ©er le blob vidÃ©o
-        const blob = new Blob(this.recordedChunks, {
-            type: `video/${this.settings.format}`
-        });
-        
-        console.log('VidÃ©o crÃ©Ã©e:', blob.size, 'bytes');
-        
-        // TÃ©lÃ©charger le fichier
+        try {
+            const mimeType = this.mediaRecorder.mimeType || 'video/webm';
+            const blob = new Blob(this.recordedChunks, { type: mimeType });
+            
+            console.log('Blob créé:', blob.size, 'bytes');
+            
+            if (blob.size > 0) {
+                this.downloadVideo(blob, mimeType);
+                const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
+                this.updateStatus(`Vidéo téléchargée ! (${sizeMB} MB)`);
+            } else {
+                this.updateStatus('Fichier vide');
+            }
+            
+        } catch (error) {
+            console.error('Erreur traitement:', error);
+            this.updateStatus('Erreur traitement: ' + error.message);
+        } finally {
+            // Délai avant nettoyage pour laisser le téléchargement se faire
+            setTimeout(() => this.forceCleanup(), 1000);
+        }
+    }
+    
+    downloadVideo(blob, mimeType) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
+        
+        const extension = mimeType.includes('webm') ? 'webm' : 'mp4';
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        
         a.href = url;
-        a.download = `loopy-animation-${Date.now()}.${this.settings.format}`;
+        a.download = `loopy-${timestamp}.${extension}`;
+        a.style.display = 'none';
+        
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
         
-        const duration = (Date.now() - this.recordingStartTime) / 1000;
-        const sizeMB = (blob.size / 1024 / 1024).toFixed(2);
-        this.updateStatus(`VidÃ©o tÃ©lÃ©chargÃ©e ! (${duration.toFixed(1)}s, ${sizeMB} MB)`);
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        console.log('Téléchargement:', a.download);
+    }
+    
+    forceCleanup() {
+        console.log('Nettoyage forcé...');
         
-        // Nettoyer
-        this.cleanup();
+        this.isRecording = false;
+        
+        if (this.recordingTimer) {
+            clearInterval(this.recordingTimer);
+            this.recordingTimer = null;
+        }
+        
+        if (this.mediaRecorder) {
+            try {
+                if (this.mediaRecorder.state !== 'inactive') {
+                    this.mediaRecorder.stop();
+                }
+            } catch (e) {
+                console.warn('Erreur arrêt MediaRecorder:', e);
+            }
+            
+            // Nettoyer les event listeners
+            this.mediaRecorder.ondataavailable = null;
+            this.mediaRecorder.onstop = null;
+            this.mediaRecorder.onerror = null;
+            this.mediaRecorder.onstart = null;
+            this.mediaRecorder = null;
+        }
+        
+        if (this.stream) {
+            this.stream.getTracks().forEach(track => {
+                if (track.readyState === 'live') {
+                    track.stop();
+                    console.log('Track arrêté:', track.kind);
+                }
+            });
+            this.stream = null;
+        }
+        
+        this.recordedChunks = [];
+        this.updateRecordButton();
     }
     
     updateRecordButton() {
         const btn = document.getElementById('gif-record-btn');
         if (btn) {
             if (this.isRecording) {
-                btn.textContent = 'ArrÃªter';
+                btn.textContent = 'Arrêter';
                 btn.style.background = '#ff4444';
             } else {
-                btn.textContent = 'Enregistrer VidÃ©o';
+                btn.textContent = 'Enregistrer Vidéo';
                 btn.style.background = '#44ff44';
             }
         }
@@ -322,31 +468,19 @@ class AdvancedLoopyWebMRecorder {
         console.log('Status:', message);
     }
     
-    cleanup() {
-        this.mediaRecorder = null;
-        this.recordedChunks = [];
+    // Méthode de diagnostic
+    getDebugInfo() {
+        return {
+            isRecording: this.isRecording,
+            recordingId: this.recordingId,
+            hasStream: !!this.stream,
+            hasMediaRecorder: !!this.mediaRecorder,
+            chunksCount: this.recordedChunks.length,
+            canvasFound: !!this.findCanvas(),
+            isInitialized: this.isInitialized
+        };
     }
 }
 
-// Auto-initialisation
-(function() {
-    function tryInitWebMRecorder() {
-        if (typeof window !== 'undefined' && window.loopy) {
-            try {
-                window.loopy.webmRecorder = new AdvancedLoopyWebMRecorder(window.loopy);
-                window.loopy.webmRecorder.init();
-                console.log('WebM Recorder auto-initialisÃ©');
-            } catch (error) {
-                console.error('Erreur auto-initialisation WebM:', error);
-            }
-        } else {
-            setTimeout(tryInitWebMRecorder, 500);
-        }
-    }
-    
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', tryInitWebMRecorder);
-    } else {
-        tryInitWebMRecorder();
-    }
-})();
+// Export global - PAS d'auto-initialisation
+window.LoopyWebMRecorder = LoopyWebMRecorder;
